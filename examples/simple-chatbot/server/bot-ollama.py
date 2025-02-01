@@ -177,8 +177,8 @@ async def main():
 
         # Initialize Ollama LLM service
         llm = OLLamaLLMService(
-            model="llama2",  # or any other model you have pulled
-            base_url="http://localhost:11434/v1"
+            model="glm4:9b-chat-q6_K",  # or any other model you have pulled
+            base_url="http://192.168.3.61:11434/v1"
         )
 
         messages = [

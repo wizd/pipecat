@@ -1,4 +1,6 @@
-python-dotenv
+python-dotenv==1.0.0
 fastapi[all]
 uvicorn
 pipecat-ai[daily,elevenlabs,openai,silero,google]
+azure-cognitiveservices-speech
+requests==2.31.0

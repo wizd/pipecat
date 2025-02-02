@@ -46,6 +46,8 @@ from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIProcessor
 from pipecat.services.elevenlabs import ElevenLabsTTSService
 from pipecat.services.openrouter import OpenRouterLLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
+from pipecat.services.azure import AzureSTTService
+from pipecat.transcriptions.language import Language
 
 load_dotenv(override=True)
 logger.remove(0)
@@ -141,15 +143,9 @@ async def main():
                 camera_out_height=576,
                 vad_enabled=True,
                 vad_analyzer=SileroVADAnalyzer(),
-                transcription_enabled=True,
-                #
-                # Spanish
-                #
-                # transcription_settings=DailyTranscriptionSettings(
-                #     language="es",
-                #     tier="nova",
-                #     model="2-general"
-                # )
+                vad_audio_passthrough=True,  # 启用音频透传
+                transcription_enabled=False,  # 禁用 Daily 的转录功能
+                audio_in_sample_rate=24000,  # 设置音频采样率
             ),
         )
 
@@ -177,6 +173,16 @@ async def main():
                 "temperature": 0.7,
                 "max_tokens": 150,
             }
+        )
+
+        # 初始化 Azure STT 服务
+        stt = AzureSTTService(
+            api_key=os.getenv("AZURE_SPEECH_API_KEY"),
+            region=os.getenv("AZURE_SPEECH_REGION"),
+            language=Language.EN_US,
+            sample_rate=24000,
+            channels=1,
+            audio_passthrough=True  # 启用音频透传
         )
 
         messages = [
@@ -208,6 +214,7 @@ async def main():
             [
                 transport.input(),
                 rtvi,
+                stt,  # 添加 STT 服务到管道
                 context_aggregator.user(),
                 llm,
                 tts,
@@ -234,8 +241,7 @@ async def main():
 
         @transport.event_handler("on_first_participant_joined")
         async def on_first_participant_joined(transport, participant):
-            await transport.capture_participant_transcription(participant["id"])
-            # 发送初始消息
+            # 不再需要捕获转录，因为我们使用 Azure STT
             await task.queue_frames([context_aggregator.user().get_context_frame()])
 
         @transport.event_handler("on_participant_left")

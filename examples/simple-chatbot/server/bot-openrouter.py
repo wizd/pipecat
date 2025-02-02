@@ -36,6 +36,7 @@ from pipecat.frames.frames import (
     SpriteFrame,
     TTSAudioRawFrame,
     TTSStoppedFrame,
+    TranscriptionFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -48,6 +49,8 @@ from pipecat.services.openrouter import OpenRouterLLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 from pipecat.services.azure import AzureSTTService
 from pipecat.transcriptions.language import Language
+from pipecat.utils.time import time_now_iso8601
+from azure.cognitiveservices.speech import ResultReason
 
 load_dotenv(override=True)
 logger.remove(0)
@@ -145,7 +148,6 @@ async def main():
                 vad_analyzer=SileroVADAnalyzer(),
                 vad_audio_passthrough=True,  # 启用音频透传
                 transcription_enabled=False,  # 禁用 Daily 的转录功能
-                audio_in_sample_rate=24000,  # 设置音频采样率
             ),
         )
 
@@ -180,9 +182,8 @@ async def main():
             api_key=os.getenv("AZURE_SPEECH_API_KEY"),
             region=os.getenv("AZURE_SPEECH_REGION"),
             language=Language.EN_US,
-            sample_rate=24000,
-            channels=1,
-            audio_passthrough=True  # 启用音频透传
+            sample_rate=16000,
+            channels=1
         )
 
         messages = [
@@ -248,15 +249,6 @@ async def main():
         async def on_participant_left(transport, participant, reason):
             logger.debug(f"Participant left: {participant}")
             await task.cancel()
-
-        @transport.event_handler("on_transcription_message")
-        async def on_transcription_message(transport, message):
-            # 当收到转录文本时，将其添加到上下文中
-            if message.get("rawResponse", {}).get("is_final", False):
-                text = message.get("text", "")
-                if text:
-                    context.add_message({"role": "user", "content": text})
-                    await task.queue_frames([context_aggregator.user().get_context_frame()])
 
         runner = PipelineRunner()
         await runner.run(task)

@@ -47,7 +47,7 @@ from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIProcessor
 from pipecat.services.elevenlabs import ElevenLabsTTSService
 from pipecat.services.openrouter import OpenRouterLLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
-from pipecat.services.azure import AzureSTTService
+from pipecat.services.azure import AzureSTTService, AzureTTSService
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 from azure.cognitiveservices.speech import ResultReason
@@ -152,17 +152,16 @@ async def main():
         )
 
         # Initialize text-to-speech service
-        tts = ElevenLabsTTSService(
-            api_key=os.getenv("ELEVENLABS_API_KEY"),
-            #
-            # English
-            #
-            voice_id="pNInz6obpgDQGcFmaJgB",
-            #
-            # Spanish
-            #
-            # model="eleven_multilingual_v2",
-            # voice_id="gD1IexrzCvsXPHUuT0s3",
+        tts = AzureTTSService(
+            api_key=os.getenv("AZURE_SPEECH_API_KEY"),
+            region=os.getenv("AZURE_SPEECH_REGION"),
+            voice="zh-CN-XiaoxiaoNeural",  # 使用小小的中文语音
+            sample_rate=24000,
+            params=AzureTTSService.InputParams(
+                language=Language.ZH_CN,
+                rate="1.1",
+                style="cheerful"
+            )
         )
 
         # Initialize LLM service

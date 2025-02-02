@@ -45,7 +45,7 @@ from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIProcessor
 from pipecat.services.elevenlabs import ElevenLabsTTSService
-from pipecat.services.openrouter import OpenRouterLLMService
+from pipecat.services.openai import OpenAILLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 from pipecat.services.azure import AzureSTTService, AzureTTSService
 from pipecat.transcriptions.language import Language
@@ -165,9 +165,10 @@ async def main():
         )
 
         # Initialize LLM service
-        llm = OpenRouterLLMService(
-            api_key=os.getenv("OPENROUTER_API_KEY"), 
-            model="openai/gpt-4o-2024-11-20",
+        llm = OpenAILLMService(
+            api_key=os.getenv("OPENAI_API_KEY"), 
+            model="gpt-4",
+            base_url=os.getenv("OPENAI_BASE_URL"),
             # 添加流式输出配置
             extra={
                 "stream": True,

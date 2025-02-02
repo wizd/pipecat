@@ -242,7 +242,8 @@ async def main():
 
         @transport.event_handler("on_first_participant_joined")
         async def on_first_participant_joined(transport, participant):
-            # 不再需要捕获转录，因为我们使用 Azure STT
+            # 添加捕获参与者的语音转录
+            await transport.capture_participant_transcription(participant["id"])
             await task.queue_frames([context_aggregator.user().get_context_frame()])
 
         @transport.event_handler("on_participant_left")

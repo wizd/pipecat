@@ -181,7 +181,7 @@ async def main():
         stt = AzureSTTService(
             api_key=os.getenv("AZURE_SPEECH_API_KEY"),
             region=os.getenv("AZURE_SPEECH_REGION"),
-            language=Language.EN_US,
+            language=Language.ZH_CN,
             sample_rate=16000,
             channels=1
         )

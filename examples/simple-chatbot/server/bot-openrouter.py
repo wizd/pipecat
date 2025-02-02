@@ -4,9 +4,9 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-"""OpenAI Bot Implementation.
+"""OpenRouter Bot Implementation.
 
-This module implements a chatbot using OpenAI's GPT-4 model for natural language
+This module implements a chatbot using OpenRouter's API for natural language
 processing. It includes:
 - Real-time audio/video interaction through Daily
 - Animated robot avatar
@@ -34,6 +34,8 @@ from pipecat.frames.frames import (
     Frame,
     OutputImageRawFrame,
     SpriteFrame,
+    TTSAudioRawFrame,
+    TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -42,7 +44,7 @@ from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIProcessor
 from pipecat.services.elevenlabs import ElevenLabsTTSService
-from pipecat.services.openai import OpenAILLMService
+from pipecat.services.openrouter import OpenRouterLLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 
 load_dotenv(override=True)
@@ -80,6 +82,7 @@ class TalkingAnimation(FrameProcessor):
     def __init__(self):
         super().__init__()
         self._is_talking = False
+        self._animation_task = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         """Process incoming frames and update animation state.
@@ -99,6 +102,16 @@ class TalkingAnimation(FrameProcessor):
         elif isinstance(frame, BotStoppedSpeakingFrame):
             await self.push_frame(quiet_frame)
             self._is_talking = False
+        elif isinstance(frame, TTSAudioRawFrame):
+            # 确保在收到音频帧时机器人在说话状态
+            if not self._is_talking:
+                await self.push_frame(talking_frame)
+                self._is_talking = True
+        elif isinstance(frame, TTSStoppedFrame):
+            # 确保在音频停止时机器人回到静止状态
+            if self._is_talking:
+                await self.push_frame(quiet_frame)
+                self._is_talking = False
 
         await self.push_frame(frame, direction)
 
@@ -155,7 +168,16 @@ async def main():
         )
 
         # Initialize LLM service
-        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
+        llm = OpenRouterLLMService(
+            api_key=os.getenv("OPENROUTER_API_KEY"), 
+            model="openai/gpt-4o-2024-11-20",
+            # 添加流式输出配置
+            extra={
+                "stream": True,
+                "temperature": 0.7,
+                "max_tokens": 150,
+            }
+        )
 
         messages = [
             {
@@ -172,7 +194,6 @@ async def main():
         ]
 
         # Set up conversation context and management
-        # The context_aggregator will automatically collect conversation context
         context = OpenAILLMContext(messages)
         context_aggregator = llm.create_context_aggregator(context)
 
@@ -214,15 +235,24 @@ async def main():
         @transport.event_handler("on_first_participant_joined")
         async def on_first_participant_joined(transport, participant):
             await transport.capture_participant_transcription(participant["id"])
+            # 发送初始消息
             await task.queue_frames([context_aggregator.user().get_context_frame()])
 
         @transport.event_handler("on_participant_left")
         async def on_participant_left(transport, participant, reason):
-            print(f"Participant left: {participant}")
+            logger.debug(f"Participant left: {participant}")
             await task.cancel()
 
-        runner = PipelineRunner()
+        @transport.event_handler("on_transcription_message")
+        async def on_transcription_message(transport, message):
+            # 当收到转录文本时，将其添加到上下文中
+            if message.get("rawResponse", {}).get("is_final", False):
+                text = message.get("text", "")
+                if text:
+                    context.add_message({"role": "user", "content": text})
+                    await task.queue_frames([context_aggregator.user().get_context_frame()])
 
+        runner = PipelineRunner()
         await runner.run(task)
 
 

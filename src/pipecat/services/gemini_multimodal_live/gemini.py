@@ -115,10 +115,10 @@ class GeminiMultimodalLiveUserContextAggregator(OpenAIUserContextAggregator):
 
 
 class GeminiMultimodalLiveAssistantContextAggregator(OpenAIAssistantContextAggregator):
-    async def _push_aggregation(self):
+    async def push_aggregation(self):
         # We don't want to store any images in the context. Revisit this later when the API evolves.
         self._pending_image_frame_message = None
-        await super()._push_aggregation()
+        await super().push_aggregation()
 
 
 @dataclass
@@ -202,6 +202,8 @@ class GeminiMultimodalLiveLLMService(LLMService):
         self._user_audio_buffer = bytearray()
         self._bot_audio_buffer = bytearray()
         self._bot_text_buffer = ""
+
+        self._sample_rate = 24000
 
         self._settings = {
             "frequency_penalty": params.frequency_penalty,
@@ -521,7 +523,7 @@ class GeminiMultimodalLiveLLMService(LLMService):
         if self._audio_input_paused:
             return
         # Send all audio to Gemini
-        evt = events.AudioInputMessage.from_raw_audio(frame.audio)
+        evt = events.AudioInputMessage.from_raw_audio(frame.audio, frame.sample_rate)
         await self.send_client_event(evt)
         # Manage a buffer of audio to use for transcription
         audio = frame.audio
@@ -650,7 +652,7 @@ class GeminiMultimodalLiveLLMService(LLMService):
         inline_data = part.inlineData
         if not inline_data:
             return
-        if inline_data.mimeType != "audio/pcm;rate=24000":
+        if inline_data.mimeType != f"audio/pcm;rate={self._sample_rate}":
             logger.warning(f"Unrecognized server_content format {inline_data.mimeType}")
             return
 
@@ -665,7 +667,7 @@ class GeminiMultimodalLiveLLMService(LLMService):
         self._bot_audio_buffer.extend(audio)
         frame = TTSAudioRawFrame(
             audio=audio,
-            sample_rate=24000,
+            sample_rate=self._sample_rate,
             num_channels=1,
         )
         await self.push_frame(frame)
@@ -704,6 +706,6 @@ class GeminiMultimodalLiveLLMService(LLMService):
         GeminiMultimodalLiveContext.upgrade(context)
         user = GeminiMultimodalLiveUserContextAggregator(context)
         assistant = GeminiMultimodalLiveAssistantContextAggregator(
-            user, expect_stripped_words=assistant_expect_stripped_words
+            context, expect_stripped_words=assistant_expect_stripped_words
         )
         return GeminiMultimodalLiveContextAggregatorPair(_user=user, _assistant=assistant)

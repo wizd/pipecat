@@ -143,7 +143,14 @@ class InputTranscriptionContextFilter(FrameProcessor):
             return
 
         try:
-            message = frame.context.messages[-1]
+            # Make sure we're working with a GoogleLLMContext
+            context = GoogleLLMContext.upgrade_to_google(frame.context)
+            message = context.messages[-1]
+
+            if not isinstance(message, glm.Content):
+                logger.error(f"Expected glm.Content, got {type(message)}")
+                return
+
             last_part = message.parts[-1]
             if not (
                 message.role == "user"
@@ -292,7 +299,7 @@ async def main():
 
         conversation_llm = GoogleLLMService(
             name="Conversation",
-            model="gemini-1.5-flash-latest",
+            model="gemini-2.0-flash-001",
             # model="gemini-exp-1121",
             api_key=os.getenv("GOOGLE_API_KEY"),
             # we can give the GoogleLLMService a system instruction to use directly
@@ -303,7 +310,7 @@ async def main():
 
         input_transcription_llm = GoogleLLMService(
             name="Transcription",
-            model="gemini-1.5-flash-latest",
+            model="gemini-2.0-flash-001",
             # model="gemini-exp-1121",
             api_key=os.getenv("GOOGLE_API_KEY"),
             system_instruction=transcriber_system_message,
@@ -347,7 +354,7 @@ async def main():
 
         task = PipelineTask(
             pipeline,
-            PipelineParams(
+            params=PipelineParams(
                 allow_interruptions=True,
                 enable_metrics=True,
                 enable_usage_metrics=True,

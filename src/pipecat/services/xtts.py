@@ -4,12 +4,12 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-from typing import Any, AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict, Optional
 
 import aiohttp
 from loguru import logger
 
-from pipecat.audio.utils import resample_audio
+from pipecat.audio.utils import create_default_resampler
 from pipecat.frames.frames import (
     ErrorFrame,
     Frame,
@@ -29,7 +29,7 @@ from pipecat.transcriptions.language import Language
 # https://github.com/coqui-ai/xtts-streaming-server
 
 
-def language_to_xtts_language(language: Language) -> str | None:
+def language_to_xtts_language(language: Language) -> Optional[str]:
     BASE_LANGUAGES = {
         Language.CS: "cs",
         Language.DE: "de",
@@ -76,7 +76,7 @@ class XTTSService(TTSService):
         base_url: str,
         aiohttp_session: aiohttp.ClientSession,
         language: Language = Language.EN,
-        sample_rate: int = 24000,
+        sample_rate: Optional[int] = None,
         **kwargs,
     ):
         super().__init__(sample_rate=sample_rate, **kwargs)
@@ -86,17 +86,23 @@ class XTTSService(TTSService):
             "base_url": base_url,
         }
         self.set_voice(voice_id)
-        self._studio_speakers: Dict[str, Any] | None = None
+        self._studio_speakers: Optional[Dict[str, Any]] = None
         self._aiohttp_session = aiohttp_session
+
+        self._resampler = create_default_resampler()
 
     def can_generate_metrics(self) -> bool:
         return True
 
-    def language_to_service_language(self, language: Language) -> str | None:
+    def language_to_service_language(self, language: Language) -> Optional[str]:
         return language_to_xtts_language(language)
 
     async def start(self, frame: StartFrame):
         await super().start(frame)
+
+        if self._studio_speakers:
+            return
+
         async with self._aiohttp_session.get(self._settings["base_url"] + "/studio_speakers") as r:
             if r.status != 200:
                 text = await r.text()
@@ -112,7 +118,7 @@ class XTTSService(TTSService):
             self._studio_speakers = await r.json()
 
     async def run_tts(self, text: str) -> AsyncGenerator[Frame, None]:
-        logger.debug(f"Generating TTS: [{text}]")
+        logger.debug(f"{self}: Generating TTS [{text}]")
 
         if not self._studio_speakers:
             logger.error(f"{self} no studio speakers available")
@@ -144,8 +150,10 @@ class XTTSService(TTSService):
 
             yield TTSStartedFrame()
 
+            CHUNK_SIZE = 1024
+
             buffer = bytearray()
-            async for chunk in r.content.iter_chunked(1024):
+            async for chunk in r.content.iter_chunked(CHUNK_SIZE):
                 if len(chunk) > 0:
                     await self.stop_ttfb_metrics()
                     # Append new chunk to the buffer.
@@ -161,17 +169,19 @@ class XTTSService(TTSService):
                         buffer = buffer[48000:]
 
                         # XTTS uses 24000 so we need to resample to our desired rate.
-                        resampled_audio = resample_audio(
-                            bytes(process_data), 24000, self._sample_rate
+                        resampled_audio = await self._resampler.resample(
+                            bytes(process_data), 24000, self.sample_rate
                         )
                         # Create the frame with the resampled audio
-                        frame = TTSAudioRawFrame(resampled_audio, self._sample_rate, 1)
+                        frame = TTSAudioRawFrame(resampled_audio, self.sample_rate, 1)
                         yield frame
 
             # Process any remaining data in the buffer.
             if len(buffer) > 0:
-                resampled_audio = resample_audio(bytes(buffer), 24000, self._sample_rate)
-                frame = TTSAudioRawFrame(resampled_audio, self._sample_rate, 1)
+                resampled_audio = await self._resampler.resample(
+                    bytes(buffer), 24000, self.sample_rate
+                )
+                frame = TTSAudioRawFrame(resampled_audio, self.sample_rate, 1)
                 yield frame
 
             yield TTSStoppedFrame()
